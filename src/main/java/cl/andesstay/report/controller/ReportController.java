@@ -1,5 +1,7 @@
 package cl.andesstay.report.controller;
 
+import cl.andesstay.report.ApiPaths;
+
 import cl.andesstay.report.repository.ReservationStatRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -12,7 +14,7 @@ import java.util.List;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/report")
+@RequestMapping(ApiPaths.REPORT)
 @RequiredArgsConstructor
 public class ReportController {
 
