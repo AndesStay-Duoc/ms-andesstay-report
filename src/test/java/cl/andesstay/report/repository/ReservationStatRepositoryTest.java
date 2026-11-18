@@ -61,11 +61,11 @@ class ReservationStatRepositoryTest {
     @Test
     @DisplayName("reservas por hora se ejecuta en MySQL y agrupa por \"yyyy-MM-dd HH\"")
     void reservasPorHora() {
-        evento("CREATED", 1, 10, AHORA.withMinute(5));
-        evento("CREATED", 2, 10, AHORA.withMinute(55));
-        evento("CREATED", 3, 11, AHORA.plusHours(1));
-        evento("CONFIRMADA", 1, 10, AHORA.withMinute(20));   // no es CREATED: no cuenta
-        evento("CREATED", 4, 11, AHORA.minusDays(2));        // fuera del rango pedido
+        evento("reservation.created", 1, 10, AHORA.withMinute(5));
+        evento("reservation.created", 2, 10, AHORA.withMinute(55));
+        evento("reservation.created", 3, 11, AHORA.plusHours(1));
+        evento("reservation.confirmed", 1, 10, AHORA.withMinute(20));   // no es una creación: no cuenta
+        evento("reservation.created", 4, 11, AHORA.minusDays(2));        // fuera del rango pedido
 
         List<Object[]> filas = repositorio.reservationsPerHour(AHORA.minusHours(1));
 
@@ -75,14 +75,14 @@ class ReservationStatRepositoryTest {
     }
 
     @Test
-    @DisplayName("en estadía cuenta reservas distintas sin CHECKOUT, también con el nombre antiguo con tilde")
+    @DisplayName("en estadía cuenta reservas distintas que todavía no han hecho checkout")
     void reservasEnEstadia() {
-        evento("EN_ESTADIA", 1, 10, AHORA);
-        evento("EN_ESTADIA", 1, 10, AHORA.plusMinutes(1));  // evento repetido: sigue siendo 1 reserva
-        evento("EN_ESTADÍA", 2, 10, AHORA);                 // nombre antiguo, de antes de quitar la tilde
-        evento("EN_ESTADIA", 3, 11, AHORA);
-        evento("CHECKOUT", 3, 11, AHORA.plusDays(2));       // ya salió: no cuenta
-        evento("CONFIRMADA", 4, 11, AHORA);                 // nunca entró: no cuenta
+        evento("reservation.in_stay", 1, 10, AHORA);
+        evento("reservation.in_stay", 1, 10, AHORA.plusMinutes(1));  // evento repetido: sigue siendo 1 reserva
+        evento("reservation.in_stay", 2, 10, AHORA);
+        evento("reservation.in_stay", 3, 11, AHORA);
+        evento("reservation.checked_out", 3, 11, AHORA.plusDays(2));       // ya salió: no cuenta
+        evento("reservation.confirmed", 4, 11, AHORA);                 // nunca entró: no cuenta
 
         assertEquals(2, repositorio.activeReservations());
     }
@@ -90,9 +90,9 @@ class ReservationStatRepositoryTest {
     @Test
     @DisplayName("las unidades más reservadas salen ordenadas de mayor a menor")
     void unidadesMasReservadas() {
-        evento("CREATED", 1, 10, AHORA);
-        evento("CREATED", 2, 11, AHORA);
-        evento("CREATED", 3, 11, AHORA);
+        evento("reservation.created", 1, 10, AHORA);
+        evento("reservation.created", 2, 11, AHORA);
+        evento("reservation.created", 3, 11, AHORA);
 
         List<Object[]> filas = repositorio.topUnits(AHORA.minusHours(1));
 

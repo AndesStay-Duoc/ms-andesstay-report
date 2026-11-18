@@ -15,16 +15,11 @@ spring:
     database-platform: org.hibernate.dialect.MySQLDialect
     open-in-view: false
   kafka:
+    # Lo único que se configura aquí es dónde está el clúster. Deserializers, grupo, confirmación
+    # manual, paquetes de confianza, concurrencia y reintentos viven en config/KafkaConsumerConfig
+    # y config/KafkaErrorConfig, comentados uno a uno: son decisiones de diseño del consumidor y no
+    # parámetros de entorno.
     bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:9092}
-    consumer:
-      group-id: report-consumer-group
-      auto-offset-reset: earliest
-      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
-      properties:
-        spring.json.trusted.packages: "*"
-    listener:
-      ack-mode: manual
   security:
     oauth2:
       resourceserver:
@@ -39,5 +34,16 @@ spring:
 
 andesstay:
   kafka:
+    # Permite arrancar el servicio sin clúster de Kafka: apaga la topología de Streams y el
+    # consumidor. Los KPIs históricos siguen sirviéndose desde MySQL y /kpis/live responde
+    # disponible=false.
+    enabled: ${ANDESSTAY_KAFKA_ENABLED:true}
     topics:
       reservations-events: reservations.events
+    groups:
+      report: report-consumer-group
+    streams:
+      application-id: report-kpi-streams
+      # Streams guarda aquí los almacenes de estado. En el contenedor apunta a un volumen: sin él,
+      # cada reinicio obliga a reconstruirlos desde el changelog.
+      state-dir: ${KAFKA_STREAMS_STATE_DIR:./target/kafka-streams}

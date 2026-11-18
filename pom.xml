@@ -11,7 +11,7 @@
   </parent>
   <groupId>cl.andesstay</groupId>
   <artifactId>ms-andesstay-report</artifactId>
-  <version>1.0.0</version>
+  <version>1.1.0</version>
   <name>ms-andesstay-report</name>
   <description>Microservicio de KPIs y Reportería - AndesStay</description>
   <properties>
@@ -28,10 +28,14 @@
     <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-oauth2-resource-server</artifactId></dependency>
     <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-data-jpa</artifactId></dependency>
     <dependency><groupId>org.springframework.kafka</groupId><artifactId>spring-kafka</artifactId></dependency>
+    <!-- Kafka Streams: los KPIs en vivo se calculan al llegar el evento, no al consultarlos -->
+    <dependency><groupId>org.apache.kafka</groupId><artifactId>kafka-streams</artifactId></dependency>
     <!-- MySQL (AWS RDS) -->
     <dependency><groupId>com.mysql</groupId><artifactId>mysql-connector-j</artifactId><scope>runtime</scope></dependency>
     <dependency><groupId>org.projectlombok</groupId><artifactId>lombok</artifactId><optional>true</optional></dependency>
     <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-test</artifactId><scope>test</scope></dependency>
+    <dependency><groupId>org.springframework.security</groupId><artifactId>spring-security-test</artifactId><scope>test</scope></dependency>
+    <dependency><groupId>org.apache.kafka</groupId><artifactId>kafka-streams-test-utils</artifactId><scope>test</scope></dependency>
     <!-- Las consultas de ReservationStatRepository se prueban contra un MySQL real: el fallo de
          TO_CHAR solo aparecía en MySQL, y H2 no tiene DATE_FORMAT. Versiones del BOM de Spring Boot. -->
     <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-testcontainers</artifactId><scope>test</scope></dependency>
