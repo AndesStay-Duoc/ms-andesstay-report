@@ -23,7 +23,7 @@ public interface ReservationStatRepository extends JpaRepository<ReservationStat
         SELECT FUNCTION('DATE_FORMAT', s.occurredAt, '%Y-%m-%d %H') as hour,
                COUNT(s) as total
         FROM ReservationStat s
-        WHERE s.eventType = 'CREATED'
+        WHERE s.eventType = 'reservation.created'
           AND s.occurredAt >= :from
         GROUP BY FUNCTION('DATE_FORMAT', s.occurredAt, '%Y-%m-%d %H')
         ORDER BY 1 ASC
@@ -34,7 +34,7 @@ public interface ReservationStatRepository extends JpaRepository<ReservationStat
     @Query("""
         SELECT s.unitId, COUNT(s) as total
         FROM ReservationStat s
-        WHERE s.eventType = 'CREATED'
+        WHERE s.eventType = 'reservation.created'
           AND s.occurredAt >= :from
         GROUP BY s.unitId
         ORDER BY 2 DESC
@@ -42,24 +42,26 @@ public interface ReservationStatRepository extends JpaRepository<ReservationStat
     List<Object[]> topUnits(@Param("from") LocalDateTime from);
 
     /**
-     * Reservas en estadía en este momento: entraron en EN_ESTADIA y todavía no tienen CHECKOUT.
+     * Reservas en estadía en este momento: entraron en estadía y todavía no han hecho checkout.
      *
-     * Antes contaba eventType = 'EN_ESTADÍA', con tilde. reservations publica el nombre del enum,
-     * que desde que se quitó la tilde es EN_ESTADIA, así que el KPI quedó fijo en 0. Además
-     * contaba eventos y no reservas, y nunca restaba las que ya habían salido.
+     * EL VOCABULARIO. Esta consulta llegó a aceptar 'EN_ESTADIA' y 'EN_ESTADÍA' a la vez porque el
+     * productor mandaba el nombre del enum y ese nombre cambió: el KPI quedó fijo en 0 hasta que
+     * alguien lo notó. El parche sobra desde que el tipo del evento lo fija TipoDeEvento en
+     * ms-andesstay-reservations y vale lo que dice el contrato, que no depende de cómo se llame un
+     * enum en el dominio. La tabla está vacía —Kafka nunca se encendió— así que no hay nada que
+     * migrar.
      *
-     * Se acepta también la forma con tilde por los eventos guardados antes de ese cambio.
-     * Desde EN_ESTADIA la única transición es CHECKOUT (no se puede cancelar), así que basta
-     * con descartar las que tienen ese evento.
+     * Desde la estadía la única transición es el checkout (no se puede cancelar), así que basta
+     * con descartar las reservas que ya lo tienen.
      */
     @Query("""
         SELECT COUNT(DISTINCT s.reservationId)
         FROM ReservationStat s
-        WHERE s.eventType IN ('EN_ESTADIA', 'EN_ESTADÍA')
+        WHERE s.eventType = 'reservation.in_stay'
           AND NOT EXISTS (
               SELECT c.id FROM ReservationStat c
               WHERE c.reservationId = s.reservationId
-                AND c.eventType = 'CHECKOUT')
+                AND c.eventType = 'reservation.checked_out')
     """)
     long activeReservations();
 }
