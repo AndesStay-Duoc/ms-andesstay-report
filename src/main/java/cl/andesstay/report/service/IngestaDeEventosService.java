@@ -77,6 +77,12 @@ public class IngestaDeEventosService {
         if (evento.eventId() == null || evento.eventId().isBlank()) {
             throw new IllegalArgumentException("El evento no trae eventId: sin el no hay idempotencia.");
         }
+        // Obligatorio en el contrato del envelope. Antes se toleraba y se fechaba con la hora del
+        // consumo, pero eso es inventar un dato: el evento caeria en la hora equivocada de la serie
+        // "reservas por hora" sin que nadie se entere. Mejor a la DLT, donde queda a la vista.
+        if (evento.timestamp() == null) {
+            throw new IllegalArgumentException("El evento no trae timestamp: no se puede ubicar en la serie.");
+        }
         if (evento.type() == null || evento.type().isBlank()) {
             throw new IllegalArgumentException("El evento no trae tipo.");
         }
@@ -91,9 +97,11 @@ public class IngestaDeEventosService {
      * Antes se guardaba LocalDateTime.now() del consumidor. Con el consumo al dia la diferencia es
      * de milisegundos, pero basta un rato de retraso o una relectura del tema desde el principio
      * para que toda la serie de "reservas por hora" se amontone en la hora de la relectura.
+     *
+     * Ya no hay respaldo con Instant.now() para un timestamp nulo: validar lo rechaza antes, por
+     * la misma razon.
      */
     private LocalDateTime momentoDelHecho(Instant instante) {
-        Instant efectivo = instante == null ? Instant.now() : instante;
-        return LocalDateTime.ofInstant(efectivo, ZoneId.systemDefault());
+        return LocalDateTime.ofInstant(instante, ZoneId.systemDefault());
     }
 }
