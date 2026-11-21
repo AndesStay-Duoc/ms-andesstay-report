@@ -1,22 +1,32 @@
 package cl.andesstay.report.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.ByteArraySerializer;
+import org.apache.kafka.common.serialization.Serializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.NestedExceptionUtils;
 import org.springframework.kafka.core.DefaultKafkaProducerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.listener.CommonErrorHandler;
 import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
 import org.springframework.kafka.listener.DefaultErrorHandler;
+import org.springframework.kafka.support.JacksonUtils;
+import org.springframework.kafka.support.converter.ConversionException;
+import org.springframework.kafka.support.serializer.DelegatingByTypeSerializer;
 import org.springframework.kafka.support.serializer.DeserializationException;
+import org.springframework.kafka.support.serializer.JsonSerializer;
 import org.springframework.util.backoff.ExponentialBackOff;
 
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -54,25 +64,58 @@ public class KafkaErrorConfig {
     private static final long ESPERA_MAXIMA_MS = 4_000L;
     private static final int INTENTOS = 3;
 
+    /**
+     * Los fallos que no mejoran por esperar. Una sola lista para dos usos: decirle al manejador que
+     * no los reintente y decidir que dice el log. Si fueran dos listas, el log podria afirmar
+     * "tras 3 intentos" de algo que no se reintento nunca, que es justo lo que pasaba antes.
+     */
+    private static final List<Class<? extends Exception>> IRRECUPERABLES = List.of(
+            DeserializationException.class,
+            IllegalArgumentException.class,
+            ConversionException.class);
+
     @Value("${spring.kafka.bootstrap-servers}")
     private String bootstrapServers;
 
     /**
-     * El productor del tema de descarte serializa bytes crudos.
+     * El productor del tema de descarte escribe lo que haya que escribir: bytes u objetos.
      *
-     * Tiene que ser asi: lo que se descarta puede ser precisamente un mensaje que no se pudo
-     * deserializar, y volver a serializarlo con JSON fallaria otra vez. Reenviar los bytes tal
-     * como llegaron conserva la evidencia intacta.
+     * POR QUE NO SOLO BYTES. Antes el valor se serializaba siempre con ByteArraySerializer. Servia
+     * para el JSON mal formado, que llega aqui como los bytes originales, pero no para un JSON
+     * valido que falla despues: un hecho sin eventId o una base caida tras los reintentos. En ese
+     * punto el valor ya es un ReservationEvent, ByteArraySerializer lanza SerializationException, la
+     * publicacion en la DLT falla y el contenedor vuelve a entregar el mismo registro sin fin. Un
+     * solo mensaje dejaba la particion bloqueada.
+     *
+     * POR QUE DELEGAR POR TIPO. byte[] se reenvia tal cual, para conservar intacta la evidencia de
+     * lo que no se pudo leer. Cualquier otro objeto se escribe como JSON, sin cabeceras de tipo
+     * (ningun consumidor de la DLT deberia depender de una clase Java de este servicio) y con las
+     * fechas en ISO 8601, que es lo que fija el contrato del envelope: asi lo que queda en la DLT se
+     * lee igual que el original. El orden del mapa importa, porque se evalua de arriba abajo.
+     *
+     * LA CLAVE tambien delega: casi siempre es el reservationId como String, pero si lo que fallo
+     * fue deserializar la clave, llega como byte[].
      */
     @Bean
     public KafkaTemplate<Object, Object> descarteKafkaTemplate() {
         Map<String, Object> propiedades = new HashMap<>();
         propiedades.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-        propiedades.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
-        propiedades.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, ByteArraySerializer.class);
         propiedades.put(ProducerConfig.ACKS_CONFIG, "all");
         propiedades.put(ProducerConfig.MAX_BLOCK_MS_CONFIG, 5_000);
-        return new KafkaTemplate<>(new DefaultKafkaProducerFactory<>(propiedades));
+
+        Map<Class<?>, Serializer<?>> clavePorTipo = new LinkedHashMap<>();
+        clavePorTipo.put(byte[].class, new ByteArraySerializer());
+        clavePorTipo.put(String.class, new StringSerializer());
+
+        ObjectMapper mapeador = JacksonUtils.enhancedObjectMapper()
+                .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+        Map<Class<?>, Serializer<?>> valorPorTipo = new LinkedHashMap<>();
+        valorPorTipo.put(byte[].class, new ByteArraySerializer());
+        valorPorTipo.put(Object.class, new JsonSerializer<>(mapeador).noTypeInfo());
+
+        return new KafkaTemplate<>(new DefaultKafkaProducerFactory<>(propiedades,
+                new DelegatingByTypeSerializer(clavePorTipo),
+                new DelegatingByTypeSerializer(valorPorTipo, true)));
     }
 
     @Bean
@@ -81,9 +124,20 @@ public class KafkaErrorConfig {
         DeadLetterPublishingRecoverer descarte = new DeadLetterPublishingRecoverer(
                 descarteKafkaTemplate,
                 (registro, excepcion) -> {
-                    log.error("[Report] Mensaje descartado tras {} intentos: topic={} particion={} offset={} causa={}",
-                            INTENTOS, registro.topic(), registro.partition(), registro.offset(),
-                            excepcion.getMessage());
+                    // La causa es la mas especifica de la cadena: el mensaje de la excepcion
+                    // exterior es "Listener method ... threw exception", que no dice nada.
+                    Throwable causa = NestedExceptionUtils.getMostSpecificCause(excepcion);
+                    if (esIrrecuperable(excepcion)) {
+                        log.error("[Report] Mensaje descartado sin reintentar (fallo irrecuperable): "
+                                        + "topic={} particion={} offset={} causa={}: {}",
+                                registro.topic(), registro.partition(), registro.offset(),
+                                causa.getClass().getSimpleName(), causa.getMessage());
+                    } else {
+                        log.error("[Report] Mensaje descartado tras {} intentos: "
+                                        + "topic={} particion={} offset={} causa={}: {}",
+                                INTENTOS, registro.topic(), registro.partition(), registro.offset(),
+                                causa.getClass().getSimpleName(), causa.getMessage());
+                    }
                     return new TopicPartition(registro.topic() + SUFIJO_DE_DESCARTE, registro.partition());
                 });
 
@@ -95,12 +149,29 @@ public class KafkaErrorConfig {
 
         // Sin vuelta de hoja: un mensaje con formato invalido o sin los campos obligatorios no
         // mejora por esperar. Va al tema de descarte en el primer intento.
-        manejador.addNotRetryableExceptions(
-                DeserializationException.class,
-                IllegalArgumentException.class,
-                org.springframework.kafka.support.converter.ConversionException.class);
+        @SuppressWarnings("unchecked")
+        Class<? extends Exception>[] irrecuperables = IRRECUPERABLES.toArray(new Class[0]);
+        manejador.addNotRetryableExceptions(irrecuperables);
 
         manejador.setLogLevel(org.springframework.kafka.KafkaException.Level.WARN);
         return manejador;
+    }
+
+    /**
+     * Si el fallo es de los que no se reintentan, mirando toda la cadena de causas.
+     *
+     * Hay que recorrerla porque el contenedor envuelve lo que lanza el listener en una
+     * ListenerExecutionFailedException: la IllegalArgumentException de IngestaDeEventosService llega como
+     * causa, no como excepcion exterior. El manejador de Spring la clasifica del mismo modo.
+     */
+    private static boolean esIrrecuperable(Throwable excepcion) {
+        for (Throwable t = excepcion; t != null; t = t.getCause()) {
+            for (Class<? extends Exception> tipo : IRRECUPERABLES) {
+                if (tipo.isInstance(t)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 }

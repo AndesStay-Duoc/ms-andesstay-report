@@ -36,6 +36,9 @@
     <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-test</artifactId><scope>test</scope></dependency>
     <dependency><groupId>org.springframework.security</groupId><artifactId>spring-security-test</artifactId><scope>test</scope></dependency>
     <dependency><groupId>org.apache.kafka</groupId><artifactId>kafka-streams-test-utils</artifactId><scope>test</scope></dependency>
+    <!-- Broker embebido para probar el consumidor y la DLT de punta a punta: el fallo de
+         serialización de la DLT solo aparece con un productor real. Versión del BOM de Spring Boot. -->
+    <dependency><groupId>org.springframework.kafka</groupId><artifactId>spring-kafka-test</artifactId><scope>test</scope></dependency>
     <!-- Las consultas de ReservationStatRepository se prueban contra un MySQL real: el fallo de
          TO_CHAR solo aparecía en MySQL, y H2 no tiene DATE_FORMAT. Versiones del BOM de Spring Boot. -->
     <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-testcontainers</artifactId><scope>test</scope></dependency>
