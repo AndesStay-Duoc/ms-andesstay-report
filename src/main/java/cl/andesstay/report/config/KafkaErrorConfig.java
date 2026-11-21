@@ -75,8 +75,14 @@ public class KafkaErrorConfig {
         return new KafkaTemplate<>(new DefaultKafkaProducerFactory<>(propiedades));
     }
 
+    /**
+     * El nombre lleva el sufijo Kafka a proposito. Spring nombra los beans por el metodo, y
+     * "manejadorDeErrores" ya es el nombre del @RestControllerAdvice web.ManejadorDeErrores: con
+     * los dos iguales y la sobrescritura prohibida en Spring Boot, el servicio no arrancaba.
+     * KafkaErrorConfigContextoTest carga las dos clases juntas para que no vuelva a pasar.
+     */
     @Bean
-    public CommonErrorHandler manejadorDeErrores(KafkaTemplate<Object, Object> descarteKafkaTemplate) {
+    public CommonErrorHandler manejadorDeErroresKafka(KafkaTemplate<Object, Object> descarteKafkaTemplate) {
 
         DeadLetterPublishingRecoverer descarte = new DeadLetterPublishingRecoverer(
                 descarteKafkaTemplate,
