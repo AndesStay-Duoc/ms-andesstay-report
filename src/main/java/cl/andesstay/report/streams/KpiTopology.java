@@ -118,10 +118,31 @@ public class KpiTopology {
         return eventos;
     }
 
-    /** Un evento sin reserva o sin instante no sirve para ningun KPI. */
+    /**
+     * Lo que no sirve para ningun KPI.
+     *
+     * Los mismos cuatro campos que exige IngestaDeEventosService.validar, la otra mitad de la
+     * reporteria. Antes aqui solo se pedian la reserva y el instante: un evento sin eventId o sin
+     * tipo terminaba en la DLT por la via de MySQL pero contaba igual en /kpis/live, y las dos vias
+     * daban cifras distintas. En la prueba de punta a punta, un mensaje sin eventId sumo una
+     * "reserva 999" que no existia.
+     *
+     * Aqui no hay DLT: Streams no tiene un manejador de errores de negocio como el del listener, y
+     * mandar el mismo mensaje a la DLT dos veces —una por cada via— duplicaria la evidencia. La DLT
+     * ya la escribe el consumidor de MySQL; Streams solo lo descarta y lo deja en el log.
+     */
     private static boolean esUtilizable(String clave, ReservationEvent evento) {
         if (evento == null || evento.payload() == null || evento.payload().reservationId() == null) {
             log.warn("[Streams] Evento descartado por no identificar ninguna reserva: clave={}", clave);
+            return false;
+        }
+        if (evento.eventId() == null || evento.eventId().isBlank()) {
+            log.warn("[Streams] Evento descartado por no traer eventId: clave={} tipo={}",
+                    clave, evento.type());
+            return false;
+        }
+        if (evento.type() == null || evento.type().isBlank()) {
+            log.warn("[Streams] Evento descartado por no traer tipo: clave={}", clave);
             return false;
         }
         if (evento.timestamp() == null) {
