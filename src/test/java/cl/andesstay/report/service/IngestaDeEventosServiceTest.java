@@ -128,6 +128,18 @@ class IngestaDeEventosServiceTest {
             assertThatThrownBy(() -> service.registrar(sinReserva))
                     .isInstanceOf(IllegalArgumentException.class);
         }
+
+        @Test
+        @DisplayName("Sin timestamp se rechaza, en vez de fecharlo con la hora del consumo")
+        void sinTimestamp() {
+            ReservationEvent sinMomento = new ReservationEvent("reservation.created", "evt-9",
+                    null, "t", "c", "origen", actor(), payload());
+
+            assertThatThrownBy(() -> service.registrar(sinMomento))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("timestamp");
+            verify(repository, never()).save(any());
+        }
     }
 
     // ── Apoyo ────────────────────────────────────────────────────────────────
