@@ -189,6 +189,38 @@ class KpiTopologyTest {
         assertThat(ciclos()).isEmpty();
     }
 
+    @Test
+    @DisplayName("Un evento sin eventId no entra en ningún KPI, igual que en la ingesta a MySQL")
+    void descartaLoQueNoTraeEventId() {
+        // Es el caso de la prueba de punta a punta: un JSON válido sin eventId. La ingesta lo
+        // mandaba a la DLT, pero Streams lo contaba y /kpis/live mostraba una reserva de más.
+        ReservationEvent sinEventId = new ReservationEvent(
+                "reservation.created", null, BASE, "t", "c", "origen",
+                new Actor("sub", "Operador", "staff"),
+                new ReservationPayload(999L, 7L, null, null, null, null, null,
+                        "CREADA", null, null, null, null, null));
+
+        entrada.pipeInput("999", sinEventId, BASE);
+
+        assertThat(ciclos()).isEmpty();
+        assertThat(cuentasPorVentana()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Un evento sin tipo no entra en ningún KPI")
+    void descartaLoQueNoTraeTipo() {
+        ReservationEvent sinTipo = new ReservationEvent(
+                null, "evt-sin-tipo", BASE, "t", "c", "origen",
+                new Actor("sub", "Operador", "staff"),
+                new ReservationPayload(998L, 7L, null, null, null, null, null,
+                        "CREADA", null, null, null, null, null));
+
+        entrada.pipeInput("998", sinTipo, BASE);
+
+        assertThat(ciclos()).isEmpty();
+        assertThat(cuentasPorVentana()).isEmpty();
+    }
+
     // ── Apoyo ────────────────────────────────────────────────────────────────
 
     private void recorrido(String id, Instant desde, String hasta) {
